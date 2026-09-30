@@ -55,7 +55,7 @@ app.put('/api/users/me', auth, async (req, res) => {
   res.json({ user: safeUser(user) });
 });
 
-app.get('/api/regions', async (req, res) => res.json({ items: await Region.findAll({ order: [['province', 'ASC'], ['city', 'ASC']] }) }));
+app.get('/api/regions', async (req, res) => res.json({ items: await Region.findAll({ order: [['province', 'ASC'], ['city', 'ASC'], ['name', 'ASC']] }) }));
 app.get('/api/types', async (req, res) => res.json({ items: ['导游', '代购', '宠物代管', '绿植代培', '住院陪护', '搬家协助', '其他'] }));
 
 app.get('/api/requests', auth, async (req, res) => {
@@ -63,6 +63,11 @@ app.get('/api/requests', auth, async (req, res) => {
   if (req.query.type) where.type = req.query.type;
   if (req.query.keyword) where[Op.or] = [{ title: { [Op.like]: `%${req.query.keyword}%` } }, { description: { [Op.like]: `%${req.query.keyword}%` } }];
   if (req.query.regionId) where.regionId = req.query.regionId;
+  if (req.query.province || req.query.city || req.query.district) {
+    const allRegions = await Region.findAll();
+    const ids = allRegions.filter(r => (!req.query.province || r.province === req.query.province) && (!req.query.city || r.city === req.query.city) && (!req.query.district || r.name === req.query.district)).map(r => r.id);
+    where.regionId = { [Op.in]: ids };
+  }
   if (req.query.mine === '1') where.userId = req.user.id;
   const result = await HelpRequest.findAndCountAll({ where, include: requestInclude(), order: [['createdAt', 'DESC']], limit: size, offset });
   res.json({ items: result.rows, total: result.count, page, size, pages: Math.ceil(result.count / size) });
@@ -72,15 +77,15 @@ app.get('/api/requests/:id', auth, async (req, res) => {
   if (!item) return res.status(404).json({ message: '需求不存在' }); res.json({ item });
 });
 app.post('/api/requests', auth, upload.single('attachment'), async (req, res) => {
-  const { type, title, description, regionId } = req.body;
-  if (!type || !title || !description || !regionId) return res.status(400).json({ message: '请填写完整需求信息' });
-  const item = await HelpRequest.create({ type, title, description, regionId, userId: req.user.id, attachment: req.file?.filename || '' });
+  const { type, title, description, regionId, address = '' } = req.body;
+  if (!type || !title || !description || !regionId || !address.trim()) return res.status(400).json({ message: '请填写完整的服务类型、地域和具体地址' });
+  const item = await HelpRequest.create({ type, title, description, regionId, address: address.trim(), userId: req.user.id, attachment: req.file?.filename || '' });
   res.status(201).json({ item });
 });
 app.put('/api/requests/:id', auth, upload.single('attachment'), async (req, res) => {
   const item = await HelpRequest.findByPk(req.params.id); if (!item || item.userId !== req.user.id) return res.status(404).json({ message: '需求不存在' });
   if (await Response.count({ where: { requestId: item.id } })) return res.status(400).json({ message: '已有响应的需求不能修改' });
-  await item.update({ type: req.body.type, title: req.body.title, description: req.body.description, regionId: req.body.regionId, ...(req.file ? { attachment: req.file.filename } : {}) }); res.json({ item });
+  await item.update({ type: req.body.type, title: req.body.title, description: req.body.description, regionId: req.body.regionId, address: (req.body.address || '').trim(), ...(req.file ? { attachment: req.file.filename } : {}) }); res.json({ item });
 });
 app.delete('/api/requests/:id', auth, async (req, res) => {
   const item = await HelpRequest.findByPk(req.params.id); if (!item || item.userId !== req.user.id) return res.status(404).json({ message: '需求不存在' });
@@ -116,12 +121,14 @@ app.post('/api/responses/:id/decision', auth, async (req, res) => {
 app.get('/api/stats', auth, async (req, res) => {
   const end = req.query.end ? `${req.query.end}-31` : new Date().toISOString().slice(0, 7) + '-31';
   const start = req.query.start ? `${req.query.start}-01` : new Date(Date.now() - 155 * 86400000).toISOString().slice(0, 7) + '-01';
-  const where = { createdAt: { [Op.between]: [new Date(start), new Date(end)] } }; if (req.query.regionId) where.regionId = req.query.regionId; if (req.query.type) where.type = req.query.type;
+  const where = { createdAt: { [Op.between]: [new Date(start), new Date(end)] } }; if (req.query.type) where.type = req.query.type;
+  let statRegionIds = null;
+  if (req.query.province || req.query.city || req.query.district) { const allRegions = await Region.findAll(); statRegionIds = allRegions.filter(r => (!req.query.province || r.province === req.query.province) && (!req.query.city || r.city === req.query.city) && (!req.query.district || r.name === req.query.district)).map(r => r.id); where.regionId = { [Op.in]: statRegionIds }; }
   const rows = await HelpRequest.findAll({ where });
   const accepted = await Success.findAll({ where: { acceptedAt: { [Op.between]: [new Date(start), new Date(end)] } } });
   const map = new Map();
   rows.forEach(r => { const k = new Date(r.createdAt).toISOString().slice(0, 7); if (!map.has(k)) map.set(k, { month: k, published: 0, accepted: 0, details: [] }); const entry = map.get(k); entry.published += 1; const d = entry.details.find(x => x.type === r.type); if (d) d.published += 1; else entry.details.push({ type: r.type, published: 1 }); });
-  for (const s of accepted) { const request = await HelpRequest.findByPk(s.requestId); if (!request || (req.query.regionId && String(request.regionId) !== String(req.query.regionId)) || (req.query.type && request.type !== req.query.type)) continue; const k = new Date(s.acceptedAt).toISOString().slice(0, 7); if (!map.has(k)) map.set(k, { month: k, published: 0, accepted: 0, details: [] }); map.get(k).accepted += 1; }
+  for (const s of accepted) { const request = await HelpRequest.findByPk(s.requestId); if (!request || (statRegionIds && !statRegionIds.includes(Number(request.regionId))) || (req.query.type && request.type !== req.query.type)) continue; const k = new Date(s.acceptedAt).toISOString().slice(0, 7); if (!map.has(k)) map.set(k, { month: k, published: 0, accepted: 0, details: [] }); map.get(k).accepted += 1; }
   res.json({ items: [...map.values()].sort((a, b) => a.month.localeCompare(b.month)), start: req.query.start || '', end: req.query.end || '' });
 });
 app.get('/api/admin/users', auth, adminOnly, async (req, res) => { const result = await User.findAll({ order: [['createdAt', 'DESC']] }); res.json({ items: result.map(safeUser) }); });

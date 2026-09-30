@@ -5,7 +5,7 @@ import bcrypt from 'bcryptjs';
 const dbPath = path.join(process.cwd(), 'data', 'haobangshou.json');
 export const Op = { in: Symbol('in'), like: Symbol('like'), or: Symbol('or'), between: Symbol('between') };
 const state = { users: [], regions: [], requests: [], responses: [], successes: [] }; let dirty = false;
-function load(){try{Object.assign(state,JSON.parse(fs.readFileSync(dbPath,'utf8')));state.requests.forEach(x=>{if(x.status===undefined)x.status=0});state.responses.forEach(x=>{if(x.status===undefined)x.status=0});state.successes.forEach(x=>{if(!x.acceptedAt)x.acceptedAt=x.createdAt});dirty=true;save()}catch{}}
+function load(){try{Object.assign(state,JSON.parse(fs.readFileSync(dbPath,'utf8')));const demoAddresses={1:'中山北路 100 号南京博物院北门',2:'浦东南路 200 号附近',3:'西溪路 88 号'};state.requests.forEach(x=>{if(x.status===undefined)x.status=0;if(x.address===undefined||!x.address)x.address=demoAddresses[x.regionId]||''});state.responses.forEach(x=>{if(x.status===undefined)x.status=0});state.successes.forEach(x=>{if(!x.acceptedAt)x.acceptedAt=x.createdAt});dirty=true;save()}catch{}}
 function save(){if(!dirty)return;fs.mkdirSync(path.dirname(dbPath),{recursive:true});fs.writeFileSync(dbPath,JSON.stringify(state,null,2));dirty=false}
 const now=()=>new Date().toISOString();
 function match(record,where={}){return Reflect.ownKeys(where).every(key=>{const expected=where[key];if(key===Op.or)return expected.some(x=>match(record,x));const actual=record[key];if(expected&&typeof expected==='object'){if(Op.in in expected)return expected[Op.in].map(Number).includes(Number(actual));if(Op.like in expected)return String(actual||'').toLowerCase().includes(String(expected[Op.like]).replaceAll('%','').toLowerCase());if(Op.between in expected)return new Date(actual)>=new Date(expected[Op.between][0])&&new Date(actual)<=new Date(expected[Op.between][1])}return String(actual)===String(expected)})}
@@ -13,7 +13,7 @@ const clone=x=>JSON.parse(JSON.stringify(x));
 class BaseModel{
  constructor(table){this.table=table} get rows(){return state[this.table]}
  async count({where={}}={}){return this.rows.filter(x=>match(x,where)).length}
- async create(data){const t=now(),defaults=this.table==='requests'?{status:0}:this.table==='responses'?{status:0}:this.table==='successes'?{acceptedAt:t}:{};const row={id:this.rows.reduce((m,x)=>Math.max(m,x.id||0),0)+1,createdAt:t,updatedAt:t,...defaults,...data};this.rows.push(row);dirty=true;save();return this.wrap(row)}
+ async create(data){const t=now(),defaults=this.table==='requests'?{status:0,address:''}:this.table==='responses'?{status:0}:this.table==='successes'?{acceptedAt:t}:{};const row={id:this.rows.reduce((m,x)=>Math.max(m,x.id||0),0)+1,createdAt:t,updatedAt:t,...defaults,...data};this.rows.push(row);dirty=true;save();return this.wrap(row)}
  async bulkCreate(items){const out=[];for(const x of items)out.push(await this.create(x));return out}
  async findOne({where={}}={}){const row=this.rows.find(x=>match(x,where));return row?this.wrap(row):null}
  async findByPk(id){const row=this.rows.find(x=>Number(x.id)===Number(id));return row?this.wrap(row):null}
