@@ -5,9 +5,9 @@ layoutFix.textContent = '.auth-card form > label:not(:has(input, textarea, selec
 document.head.appendChild(layoutFix);
 const app = createApp({
   components: {
-    RequestCard: { props: ['item','mine'], emits: ['open','edit','remove'], template: `<article class="request-card"><div><span class="tag">{{item.type}}</span><span v-if="item.status!==0" class="tag" style="margin-left:5px;background:#f1f3f5;color:#8895a5">已归档</span></div><h4>{{item.title}}</h4><p>{{item.description}}</p><div class="meta">{{item.Region?.province}} · {{item.Region?.city}} · {{item.Region?.name}}　{{item.publisher?.name}} <button class="link" style="float:right" @click="$emit('open',item)">详情</button></div><div v-if="mine && item.status===0" style="margin-top:11px"><button class="link" @click="$emit('edit',item)">编辑</button> <button class="link danger" @click="$emit('remove',item)">删除</button></div></article>` },
-    Empty: { props: ['text'], template: '<div class="empty">{{text}}</div>' },
-    Pager: { props: ['data'], emits: ['change'], template: `<div class="pager" v-if="data.pages>1"><button v-for="n in data.pages" :class="{active:n===data.page}" @click="$emit('change',n)">{{n}}</button></div>` }
+    'request-card': { props: ['item','mine'], emits: ['open','edit','remove'], template: `<article class="request-card"><div><span class="tag">{{item.type}}</span><span v-if="item.status!==0" class="tag" style="margin-left:5px;background:#f1f3f5;color:#8895a5">已归档</span></div><h4>{{item.title}}</h4><p>{{item.description}}</p><div class="meta">{{item.Region?.province}} · {{item.Region?.city}} · {{item.Region?.name}}　{{item.publisher?.name}} <button class="link" style="float:right" @click="$emit('open',item)">详情</button></div><div v-if="mine && item.status===0" style="margin-top:11px"><button class="link" @click="$emit('edit',item)">编辑</button> <button class="link danger" @click="$emit('remove',item)">删除</button></div></article>` },
+    'empty-state': { props: ['text'], template: '<div class="empty">{{text}}</div>' },
+    'pager-control': { props: ['data'], emits: ['change'], template: `<div class="pager" v-if="data.pages>1"><button v-for="n in data.pages" :class="{active:n===data.page}" @click="$emit('change',n)">{{n}}</button></div>` }
   },
   setup() {
     const user = ref(JSON.parse(localStorage.getItem('hb_user') || 'null')); const token = ref(localStorage.getItem('hb_token') || ''); const view = ref('home'); const authMode = ref('login'); const message = ref(''); const toast = ref(''); let toastTimer;
