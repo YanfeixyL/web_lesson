@@ -18,7 +18,8 @@ const upload = multer({ dest: path.join(root, 'uploads') });
 app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(path.join(root, 'uploads')));
-app.use(express.static(path.join(root, 'public')));
+app.get('/api/health', (req, res) => res.json({ status: 'ok', service: 'haobangshou' }));
+app.use(express.static(path.join(root, 'public'), { maxAge: 0 }));
 
 function safeUser(u) { return { id: u.id, username: u.username, role: u.role, name: u.name, phone: u.phone, bio: u.bio, createdAt: u.createdAt }; }
 function auth(req, res, next) {
@@ -136,4 +137,4 @@ app.get('/api/admin/requests', auth, adminOnly, async (req, res) => { const resu
 
 app.get('*', (req, res) => res.sendFile(path.join(root, 'public', 'index.html')));
 const port = Number(process.env.PORT || 3000);
-initDatabase().then(() => app.listen(port, () => console.log(`好帮手已启动: http://localhost:${port}`))).catch(err => { console.error(err); process.exit(1); });
+initDatabase().then(() => app.listen(port, process.env.HOST || '0.0.0.0', () => console.log(`好帮手已启动: http://localhost:${port}`))).catch(err => { console.error(err); process.exit(1); });

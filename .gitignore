@@ -4,3 +4,5 @@ data/*
 uploads/*
 !uploads/.gitkeep
 *.log
+.env.production
+*.tar.gz

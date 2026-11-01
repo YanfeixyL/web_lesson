@@ -1,0 +1,25 @@
+[Unit]
+Description=Haobangshou course web application
+After=network.target
+
+[Service]
+Type=simple
+User=admin
+Group=admin
+WorkingDirectory=/home/admin/Project/haobangshou
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=3010
+EnvironmentFile=/home/admin/Project/haobangshou/.env.production
+ExecStart=/usr/bin/node src/server.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/admin/Project/haobangshou/data /home/admin/Project/haobangshou/uploads
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target
