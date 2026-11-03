@@ -1,33 +1,32 @@
-/* 默认开发模式使用 JSON 持久化，部署到 MySQL 时可按 sql.txt 切换 Sequelize。 */
-import fs from 'fs';
-import path from 'path';
+import { Sequelize, DataTypes } from 'sequelize';
+import path from 'node:path';
+import fs from 'node:fs';
 import bcrypt from 'bcryptjs';
-const dbPath = path.join(process.cwd(), 'data', 'haobangshou.json');
-export const Op = { in: Symbol('in'), like: Symbol('like'), or: Symbol('or'), between: Symbol('between') };
-const state = { users: [], regions: [], requests: [], responses: [], successes: [] }; let dirty = false;
-function load(){try{Object.assign(state,JSON.parse(fs.readFileSync(dbPath,'utf8')));const demoAddresses={1:'中山北路 100 号南京博物院北门',2:'浦东南路 200 号附近',3:'西溪路 88 号'};state.requests.forEach(x=>{if(x.status===undefined)x.status=0;if(x.address===undefined||!x.address)x.address=demoAddresses[x.regionId]||''});state.responses.forEach(x=>{if(x.status===undefined)x.status=0});state.successes.forEach(x=>{if(!x.acceptedAt)x.acceptedAt=x.createdAt});dirty=true;save()}catch{}}
-function save(){if(!dirty)return;fs.mkdirSync(path.dirname(dbPath),{recursive:true});fs.writeFileSync(dbPath,JSON.stringify(state,null,2));dirty=false}
-const now=()=>new Date().toISOString();
-function match(record,where={}){return Reflect.ownKeys(where).every(key=>{const expected=where[key];if(key===Op.or)return expected.some(x=>match(record,x));const actual=record[key];if(expected&&typeof expected==='object'){if(Op.in in expected)return expected[Op.in].map(Number).includes(Number(actual));if(Op.like in expected)return String(actual||'').toLowerCase().includes(String(expected[Op.like]).replaceAll('%','').toLowerCase());if(Op.between in expected)return new Date(actual)>=new Date(expected[Op.between][0])&&new Date(actual)<=new Date(expected[Op.between][1])}return String(actual)===String(expected)})}
-const clone=x=>JSON.parse(JSON.stringify(x));
-class BaseModel{
- constructor(table){this.table=table} get rows(){return state[this.table]}
- async count({where={}}={}){return this.rows.filter(x=>match(x,where)).length}
- async create(data){const t=now(),defaults=this.table==='requests'?{status:0,address:''}:this.table==='responses'?{status:0}:this.table==='successes'?{acceptedAt:t}:{};const row={id:this.rows.reduce((m,x)=>Math.max(m,x.id||0),0)+1,createdAt:t,updatedAt:t,...defaults,...data};this.rows.push(row);dirty=true;save();return this.wrap(row)}
- async bulkCreate(items){const out=[];for(const x of items)out.push(await this.create(x));return out}
- async findOne({where={}}={}){const row=this.rows.find(x=>match(x,where));return row?this.wrap(row):null}
- async findByPk(id){const row=this.rows.find(x=>Number(x.id)===Number(id));return row?this.wrap(row):null}
- async findAll({where={},order=[],limit,offset=0}={}){let rows=this.rows.filter(x=>match(x,where));if(order.length){const[f,d]=order[0];rows.sort((a,b)=>String(a[f]).localeCompare(String(b[f]))*(d==='DESC'?-1:1))}if(offset||limit)rows=rows.slice(offset,limit?offset+limit:undefined);return rows.map(x=>this.wrap(x))}
- async findAndCountAll(opts={}){const all=await this.findAll({...opts,limit:undefined,offset:0});const off=opts.offset||0;return{rows:all.slice(off,opts.limit?off+opts.limit:undefined),count:all.length}}
- async update(values,opts={}){const rows=this.rows.filter(x=>match(x,opts.where||{}));rows.forEach(row=>Object.assign(row,values,{updatedAt:now()}));if(rows.length){dirty=true;save()}return[rows.length]}
- wrap(row){const o={...clone(row)};o.update=async values=>{Object.assign(row,values,{updatedAt:now()});dirty=true;save();Object.assign(o,values);return o};return o}
+export { Op } from 'sequelize';
+const storage = process.env.DB_STORAGE || path.join(process.cwd(), 'data', 'haobangshou.sqlite');
+fs.mkdirSync(path.dirname(storage), { recursive: true });
+const sequelize = process.env.DB_DIALECT === 'mysql' ? new Sequelize(process.env.DB_NAME || 'haobangshou', process.env.DB_USER || 'root', process.env.DB_PASSWORD || '', { dialect: 'mysql', host: process.env.DB_HOST || '127.0.0.1', port: Number(process.env.DB_PORT || 3306), logging: false, define: { underscored: true, timestamps: true } }) : new Sequelize({ dialect: 'sqlite', storage, logging: false, define: { underscored: true, timestamps: true } });
+export const User = sequelize.define('User', { id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true }, username: { type: DataTypes.STRING(30), unique: true }, passwordHash: DataTypes.STRING(100), role: { type: DataTypes.ENUM('admin','user'), defaultValue: 'user' }, name: DataTypes.STRING(30), phone: DataTypes.STRING(11), bio: DataTypes.STRING(500) }, { tableName: 'users' });
+export const Region = sequelize.define('Region', { id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true }, name: DataTypes.STRING(50), city: DataTypes.STRING(50), province: DataTypes.STRING(50) }, { tableName: 'regions' });
+export const HelpRequest = sequelize.define('HelpRequest', { id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true }, userId: DataTypes.INTEGER, regionId: DataTypes.INTEGER, type: DataTypes.STRING(30), title: DataTypes.STRING(100), description: DataTypes.TEXT, address: DataTypes.STRING(200), attachment: DataTypes.STRING(255), status: { type: DataTypes.TINYINT, defaultValue: 0 } }, { tableName: 'help_requests' });
+export const Response = sequelize.define('Response', { id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true }, requestId: DataTypes.INTEGER, userId: DataTypes.INTEGER, description: DataTypes.TEXT, attachment: DataTypes.STRING(255), status: { type: DataTypes.TINYINT, defaultValue: 0 } }, { tableName: 'responses' });
+export const Success = sequelize.define('Success', { id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true }, requestId: { type: DataTypes.INTEGER, unique: true }, publisherId: DataTypes.INTEGER, responderId: DataTypes.INTEGER, responseId: { type: DataTypes.INTEGER, unique: true }, acceptedAt: { type: DataTypes.DATE, defaultValue: DataTypes.NOW } }, { tableName: 'successes' });
+User.hasMany(HelpRequest, { foreignKey: 'userId' }); HelpRequest.belongsTo(User, { foreignKey: 'userId', as: 'publisher' }); Region.hasMany(HelpRequest, { foreignKey: 'regionId' }); HelpRequest.belongsTo(Region, { foreignKey: 'regionId' }); HelpRequest.hasMany(Response, { foreignKey: 'requestId' }); Response.belongsTo(HelpRequest, { foreignKey: 'requestId' }); User.hasMany(Response, { foreignKey: 'userId' }); Response.belongsTo(User, { foreignKey: 'userId', as: 'responder' }); Response.hasOne(Success, { foreignKey: 'responseId' }); Success.belongsTo(Response, { foreignKey: 'responseId' });
+export { sequelize };
+
+export async function initDatabase() {
+ await sequelize.authenticate();
+ await sequelize.sync();
+ const monthExpr=sequelize.getDialect()==='mysql' ? "DATE_FORMAT(event_time, '%Y%m')" : "strftime('%Y%m', event_time)";
+ await sequelize.query(`CREATE VIEW IF NOT EXISTS monthly_summary AS SELECT ${monthExpr} AS month, r.province, r.city, e.type, SUM(e.published) AS published, SUM(e.accepted) AS accepted FROM (SELECT created_at AS event_time, region_id, type, 1 AS published, 0 AS accepted FROM help_requests UNION ALL SELECT s.accepted_at, h.region_id, h.type, 0, 1 FROM successes s JOIN help_requests h ON h.id=s.request_id) e JOIN regions r ON r.id=e.region_id GROUP BY ${monthExpr}, r.province, r.city, e.type`);
+ if (await User.count()) return;
+ await sequelize.transaction(async transaction => {
+ const users = await User.bulkCreate([
+ {username:'admin',passwordHash:await bcrypt.hash('admin',10),role:'admin',name:'系统管理员',phone:'13800000000',bio:'平台管理员'},
+ {username:'zhangsan',passwordHash:await bcrypt.hash('Abc12345',10),role:'user',name:'张三',phone:'13900000001',bio:'喜欢旅行和帮助别人'},
+ {username:'lisi',passwordHash:await bcrypt.hash('Abc12345',10),role:'user',name:'李四',phone:'13900000002',bio:'熟悉本地生活服务'}
+ ], {transaction});
+ await Region.bulkCreate([{name:'鼓楼区',city:'南京市',province:'江苏省'},{name:'浦东新区',city:'上海市',province:'上海市'},{name:'西湖区',city:'杭州市',province:'浙江省'}], {transaction});
+ await HelpRequest.bulkCreate([{userId:users[1].id,regionId:1,type:'导游',title:'周末南京博物院导游',description:'希望熟悉历史的朋友带我参观南京博物院。',address:'中山东路 321 号'},{userId:users[2].id,regionId:2,type:'代购',title:'帮忙购买生活用品',description:'希望附近的朋友协助采购。',address:'浦东南路 200 号'},{userId:users[1].id,regionId:3,type:'宠物代管',title:'出差期间照顾猫咪',description:'照顾一只温顺的猫咪，周期五天。',address:'西溪路 88 号'}], {transaction});
+ });
 }
-const omitPassword=u=>{const{passwordHash,...safe}=u;return safe};
-class UserModel extends BaseModel{constructor(){super('users')}wrap(row){return super.wrap(row)}}
-class RegionModel extends BaseModel{constructor(){super('regions')}}
-class RequestModel extends BaseModel{constructor(){super('requests')}wrap(row,withResponses=true){const o=super.wrap(row),u=state.users.find(x=>x.id===row.userId),r=state.regions.find(x=>x.id===row.regionId);o.publisher=u?omitPassword(u):null;o.Region=r?clone(r):null;if(withResponses){o.Responses=state.responses.filter(x=>x.requestId===row.id).map(x=>new ResponseModel().wrap(x));o.Response=o.Responses}return o}}
-class ResponseModel extends BaseModel{constructor(){super('responses')}wrap(row){const o=super.wrap(row),q=state.requests.find(x=>x.id===row.requestId),u=state.users.find(x=>x.id===row.userId);o.HelpRequest=q?new RequestModel().wrap(q,false):null;o.responder=u?omitPassword(u):null;return o}}
-class SuccessModel extends BaseModel{constructor(){super('successes')}}
-export const User=new UserModel(),Region=new RegionModel(),HelpRequest=new RequestModel(),Response=new ResponseModel(),Success=new SuccessModel();
-export const sequelize={async sync(){}};
-export async function initDatabase(){load();if(state.users.length)return User.findOne({where:{username:'admin'}});const admin=await User.create({username:'admin',passwordHash:await bcrypt.hash('admin123',10),role:'admin',name:'系统管理员',phone:'13800000000',bio:'平台管理员'});const zhang=await User.create({username:'zhangsan',passwordHash:await bcrypt.hash('abc12345',10),role:'user',name:'张三',phone:'13900000001',bio:'喜欢旅行和帮助别人'});const li=await User.create({username:'lisi',passwordHash:await bcrypt.hash('abc12345',10),role:'user',name:'李四',phone:'13900000002',bio:'熟悉本地生活服务'});const rs=await Region.bulkCreate([{name:'鼓楼区',city:'南京市',province:'江苏省'},{name:'浦东新区',city:'上海市',province:'上海市'},{name:'西湖区',city:'杭州市',province:'浙江省'}]);const qs=await HelpRequest.bulkCreate([{userId:zhang.id,regionId:rs[0].id,type:'导游',title:'周末南京博物院导游',description:'希望熟悉历史的朋友带我参观南京博物院，时间半天。'},{userId:li.id,regionId:rs[1].id,type:'代购',title:'帮忙购买药品',description:'需要在附近药房代购常用药品，费用可当面结算。'},{userId:zhang.id,regionId:rs[2].id,type:'宠物代管',title:'出差期间照顾猫咪',description:'照顾一只温顺的猫咪，周期 5 天，有偿。'}]);await Response.create({requestId:qs[0].id,userId:li.id,description:'我对南京历史很熟悉，可以全程陪同。'});await Response.create({requestId:qs[1].id,userId:zhang.id,description:'我住在附近，今晚可以帮忙购买。'});return admin}

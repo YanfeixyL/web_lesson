@@ -6,3 +6,6 @@ uploads/*
 *.log
 .env.production
 *.tar.gz
+
+tmp/
+.env
